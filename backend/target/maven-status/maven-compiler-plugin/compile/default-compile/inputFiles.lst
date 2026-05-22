@@ -3,6 +3,7 @@ C:\Users\CESDE\Downloads\TDV BACK 2\backend\src\main\java\com\tvd\backend\dto\Cr
 C:\Users\CESDE\Downloads\TDV BACK 2\backend\src\main\java\com\tvd\backend\model\PhotoMoment.java
 C:\Users\CESDE\Downloads\TDV BACK 2\backend\src\main\java\com\tvd\backend\exception\GlobalExceptionHandler.java
 C:\Users\CESDE\Downloads\TDV BACK 2\backend\src\main\java\com\tvd\backend\dto\PhotoMomentDto.java
+C:\Users\CESDE\Downloads\TDV BACK 2\backend\src\main\java\com\tvd\backend\config\CorsConfig.java
 C:\Users\CESDE\Downloads\TDV BACK 2\backend\src\main\java\com\tvd\backend\dto\CreateDiaryEntryRequest.java
 C:\Users\CESDE\Downloads\TDV BACK 2\backend\src\main\java\com\tvd\backend\dto\DiaryEntryDto.java
 C:\Users\CESDE\Downloads\TDV BACK 2\backend\src\main\java\com\tvd\backend\model\DiaryEntry.java

@@ -7,3 +7,4 @@ com\tvd\backend\model\DiaryEntry.class
 com\tvd\backend\model\PhotoMoment.class
 com\tvd\backend\TvdBackendApplication.class
 com\tvd\backend\dto\PhotoMomentDto.class
+com\tvd\backend\config\CorsConfig.class
