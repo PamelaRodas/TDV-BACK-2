@@ -24,3 +24,6 @@ temp/
 *.pid
 *.seed
 *.pid.lock
+__pycache__/
+*.pyc
+.venv/
