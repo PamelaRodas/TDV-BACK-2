@@ -1,6 +1,7 @@
 """
 Generador de Reportes
-Crea reportes visuales en SVG/Base64 para integración con React/Frontend
+Crea reportes visuales en Base64 para integración con React/Frontend
+Se conecta con el backend Spring Boot para sincronización de datos
 """
 
 import json
@@ -9,12 +10,17 @@ from io import BytesIO
 from datetime import datetime
 from pathlib import Path
 import pandas as pd
-from visualizacion import VisualizadorDatos
+import logging
+from visualizacion import VisualizadorDatos, crear_visualizador
 from analisis import AnalizadorDatos
+
+# Configurar logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class GeneradorReportes:
-    """Clase para generar reportes interactivos"""
+    """Clase para generar reportes visuales e interactivos"""
     
     def __init__(self, output_dir='reportes'):
         """
@@ -25,79 +31,171 @@ class GeneradorReportes:
         """
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
-        self.visualizador = VisualizadorDatos(output_dir)
+        self.visualizador = crear_visualizador()
         self.analizador = AnalizadorDatos()
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        logger.info(f"GeneradorReportes inicializado en {output_dir}")
     
     def procesar_datos_para_frontend(self, datos_json=None, archivo_csv=None):
         """
-        Procesar datos y generar salida para frontend
+        Procesar datos y generar salida completa para frontend
+        Incluye análisis estadísticos y gráficos en Base64
         
         Args:
             datos_json (dict o str): Datos en formato JSON o ruta al archivo
             archivo_csv (str): Ruta a archivo CSV
             
         Returns:
-            dict: Datos procesados listos para enviar al frontend
+            dict: Datos procesados listos para enviar al frontend (modelo Headless/Pull)
         """
-        # Cargar datos
-        if datos_json:
-            if isinstance(datos_json, str):
-                with open(datos_json, 'r') as f:
-                    datos = json.load(f)
+        try:
+            # Cargar datos
+            if datos_json:
+                if isinstance(datos_json, str):
+                    with open(datos_json, 'r') as f:
+                        datos = json.load(f)
+                else:
+                    datos = datos_json
+                df = pd.DataFrame(datos)
+            elif archivo_csv:
+                df = pd.read_csv(archivo_csv)
             else:
-                datos = datos_json
-            df = pd.DataFrame(datos)
-        elif archivo_csv:
-            df = pd.read_csv(archivo_csv)
-        else:
-            raise ValueError('Debe proporcionar datos_json o archivo_csv')
-        
-        # Limpiar datos
-        self.analizador.cargar_datos(dataframe=df)
-        self.analizador.limpiar_datos()
-        df_limpio = self.analizador.df
-        
-        # Generar análisis
-        estadisticas = self.analizador.obtener_estadisticas_descriptivas()
-        
-        # Generar gráficos
-        graficos = {}
-        
-        # Frecuencias de columnas categóricas
-        for columna in df_limpio.select_dtypes(include=['object']).columns[:5]:
-            if df_limpio[columna].nunique() <= 15:
-                resultado = self.visualizador.graficar_frecuencia(
-                    df_limpio, columna, f'Análisis: {columna}'
-                )
-                if resultado.get('base64'):
-                    graficos[f'frecuencia_{columna}'] = {
-                        'tipo': 'barras',
-                        'imagen_base64': resultado['base64'],
-                        'descripcion': f'Distribución de {columna}'
-                    }
-        
-        # Distribuciones de columnas numéricas
-        for columna in df_limpio.select_dtypes(include=['number']).columns[:3]:
-            resultado = self.visualizador.graficar_distribucion(
-                df_limpio, columna, f'Distribución: {columna}'
-            )
-            if resultado.get('base64'):
-                graficos[f'distribucion_{columna}'] = {
-                    'tipo': 'histograma',
-                    'imagen_base64': resultado['base64'],
-                    'descripcion': f'Distribución de {columna}'
+                raise ValueError('Debe proporcionar datos_json o archivo_csv')
+            
+            logger.info(f"Procesando {len(df)} registros para reporte")
+            
+            # Limpiar datos
+            self.analizador.cargar_datos(dataframe=df)
+            self.analizador.limpiar_datos()
+            df_limpio = self.analizador.df
+            
+            # Generar análisis estadísticos
+            estadisticas = self.analizador.obtener_estadisticas_descriptivas()
+            
+            # Generar gráficos
+            graficos = {}
+            
+            # Frecuencias de columnas categóricas (máx 5)
+            for columna in df_limpio.select_dtypes(include=['object']).columns[:5]:
+                try:
+                    if df_limpio[columna].nunique() <= 15:
+                        resultado = self.visualizador.graficar_frecuencia(
+                            df_limpio, columna, f'Análisis: {columna}'
+                        )
+                        if resultado.get('base64'):
+                            graficos[f'frecuencia_{columna}'] = {
+                                'tipo': 'barras',
+                                'imagen_base64': resultado['base64'],
+                                'descripcion': f'Frecuencia de {columna}',
+                                'columna': columna
+                            }
+                except Exception as e:
+                    logger.warning(f"Error generando gráfico para {columna}: {str(e)}")
+            
+            # Distribuciones de columnas numéricas (máx 3)
+            for columna in df_limpio.select_dtypes(include=['number']).columns[:3]:
+                try:
+                    resultado = self.visualizador.graficar_distribucion(
+                        df_limpio, columna, f'Distribución: {columna}'
+                    )
+                    if resultado.get('base64'):
+                        graficos[f'distribucion_{columna}'] = {
+                            'tipo': 'histograma',
+                            'imagen_base64': resultado['base64'],
+                            'descripcion': f'Distribución de {columna}',
+                            'media': resultado.get('media'),
+                            'mediana': resultado.get('mediana'),
+                            'std': resultado.get('std')
+                        }
+                except Exception as e:
+                    logger.warning(f"Error generando distribución para {columna}: {str(e)}")
+            
+            # Correlación si hay variables numéricas
+            if len(df_limpio.select_dtypes(include=['number']).columns) >= 2:
+                try:
+                    resultado = self.visualizador.graficar_correlacion(df_limpio)
+                    if resultado.get('base64'):
+                        graficos['correlacion'] = {
+                            'tipo': 'heatmap',
+                            'imagen_base64': resultado['base64'],
+                            'descripcion': 'Matriz de correlación entre variables'
+                        }
+                except Exception as e:
+                    logger.warning(f"Error generando correlación: {str(e)}")
+            
+            # Gráficos de pastel para categóricas (máx 3)
+            for columna in df_limpio.select_dtypes(include=['object']).columns[:3]:
+                try:
+                    if df_limpio[columna].nunique() <= 10:
+                        resultado = self.visualizador.graficar_pastel(df_limpio, columna)
+                        if resultado.get('base64'):
+                            graficos[f'pastel_{columna}'] = {
+                                'tipo': 'pastel',
+                                'imagen_base64': resultado['base64'],
+                                'descripcion': f'Proporciones de {columna}',
+                                'columna': columna
+                            }
+                except Exception as e:
+                    logger.warning(f"Error generando pastel para {columna}: {str(e)}")
+            
+            # Construir respuesta
+            respuesta = {
+                'success': True,
+                'timestamp': datetime.now().isoformat(),
+                'estadisticas': estadisticas,
+                'graficos': graficos,
+                'resumen': {
+                    'total_registros': len(df_limpio),
+                    'total_graficos': len(graficos),
+                    'tipos_graficos': list(set([g.get('tipo') for g in graficos.values()]))
                 }
+            }
+            
+            logger.info(f"Reporte generado exitosamente con {len(graficos)} gráficos")
+            return respuesta
+            
+        except Exception as e:
+            logger.error(f"Error procesando datos: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e),
+                'timestamp': datetime.now().isoformat()
+            }
+    
+    def generar_reporte_json_completo(self, dataframe, nombre_reporte='reporte'):
+        """
+        Generar un reporte completo en JSON con todos los análisis
         
-        # Correlación si aplica
-        if len(df_limpio.select_dtypes(include=['number']).columns) >= 2:
-            resultado = self.visualizador.graficar_correlacion(df_limpio)
-            if resultado.get('base64'):
-                graficos['correlacion'] = {
-                    'tipo': 'heatmap',
-                    'imagen_base64': resultado['base64'],
-                    'descripcion': 'Matriz de correlación entre variables'
-                }
+        Args:
+            dataframe (pd.DataFrame): DataFrame a analizar
+            nombre_reporte (str): Nombre del reporte
+            
+        Returns:
+            dict: Reporte completo con estadísticas y gráficos
+        """
+        try:
+            logger.info(f"Generando reporte JSON: {nombre_reporte}")
+            
+            # Análisis
+            self.analizador.cargar_datos(dataframe=dataframe)
+            self.analizador.limpiar_datos()
+            estadisticas = self.analizador.obtener_estadisticas_descriptivas()
+            
+            # Generar gráficos
+            reporte_viz = self.visualizador.generar_reporte_completo(dataframe, nombre_reporte)
+            
+            # Combinar
+            reporte_final = {
+                'nombre': nombre_reporte,
+                'timestamp': datetime.now().isoformat(),
+                'estadisticas': estadisticas,
+                'graficos': reporte_viz.get('graficos', {})
+            }
+            
+            return reporte_final
+        except Exception as e:
+            logger.error(f"Error generando reporte JSON: {str(e)}")
+            return {'error': str(e)}
         
         # Preparar respuesta para frontend
         reporte_frontend = {
